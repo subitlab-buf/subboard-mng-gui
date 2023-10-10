@@ -2,14 +2,16 @@ use std::{collections::HashMap, fs::File, io::Read};
 
 use chrono::DateTime;
 
+use hex_color::HexColor;
 use iced::{
+    color,
     futures::TryFutureExt,
     theme,
     widget::{button, container, vertical_space, Column, Row, Scrollable, Text},
     Application, Color, Command, Font, Length,
 };
 use iced_aw::Split;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 fn main() -> iced::Result {
     tracing_subscriber::fmt()
@@ -73,10 +75,11 @@ struct App {
     split_0_pos: Option<u16>,
     selected_paper: Option<i32>,
     nerd_font: Font,
+    dark_mode: bool,
 }
 
 impl Application for App {
-    type Executor = iced::executor::Default;
+    type Executor = iced_futures::backend::native::tokio::Executor;
 
     type Message = Msg;
 
@@ -107,14 +110,23 @@ impl Application for App {
                 split_0_pos: Some(200),
                 selected_paper: None,
                 nerd_font: Font::MONOSPACE,
+                dark_mode: false,
             },
             iced::font::load(include_bytes!("../fonts/SymbolsNerdFontMono-Regular.ttf").as_slice())
                 .map(Msg::FontLoaded),
         )
     }
 
+    #[inline]
     fn title(&self) -> String {
-        "SubBoard GUI".to_string()
+        format!(
+            "{}SubBoard GUI",
+            if let Some(value) = self.selected_paper.and_then(|v| self.papers.get(&v)) {
+                format!("{} - ", value.info)
+            } else {
+                Default::default()
+            }
+        )
     }
 
     fn update(&mut self, message: Self::Message) -> iced::Command<Self::Message> {
@@ -155,25 +167,32 @@ impl Application for App {
                         let span = tracing::span!(tracing::Level::INFO, "accept paper {paper}");
                         let _ = span.enter();
 
-                        #[derive(Debug, Serialize)]
-                        struct Req {
-                            pid: i32,
-                        }
-
                         if let Err(err) = si
                             .client
                             .post(&si.host.process_paper)
-                            .json(&Req { pid: paper })
+                            .query(&[("pid", paper)])
                             .send()
                             .await
                         {
                             tracing::event!(tracing::Level::ERROR, "{err}");
+                            false
+                        } else {
+                            true
                         }
                     },
-                    |_| Msg::Refresh,
+                    move |p| Msg::Accepted(paper, p),
                 );
             }
             Msg::FontLoaded(Ok(_)) => self.nerd_font = Font::with_name("Symbols Nerd Font Mono"),
+            Msg::Accepted(paper, p) => {
+                if let Some(value) = self.papers.get_mut(&paper) {
+                    value.processed = Some(p)
+                }
+                return Command::perform(async {}, |_| Msg::Refresh);
+            }
+            Msg::ToggleDarkMode => {
+                self.dark_mode = !self.dark_mode;
+            }
             _ => (),
         }
 
@@ -195,19 +214,33 @@ impl Application for App {
                     .style(Color::new(0.5, 0.5, 0.5, 1.0)),
             );
 
-            bar = bar.push(
-                button(
-                    Text::new("󰑐")
-                        .width(30)
-                        .height(30)
-                        .size(13.5)
-                        .horizontal_alignment(iced::alignment::Horizontal::Center)
-                        .style(Color::new(0.5, 0.5, 0.5, 1.0))
-                        .font(self.nerd_font),
+            bar = bar
+                .push(
+                    button(
+                        Text::new("󰃝")
+                            .width(30)
+                            .height(30)
+                            .size(13.5)
+                            .horizontal_alignment(iced::alignment::Horizontal::Center)
+                            .style(Color::new(0.5, 0.5, 0.5, 1.0))
+                            .font(self.nerd_font),
+                    )
+                    .style(theme::Button::Text)
+                    .on_press(Msg::ToggleDarkMode),
                 )
-                .style(theme::Button::Text)
-                .on_press(Msg::Refresh),
-            );
+                .push(
+                    button(
+                        Text::new("󰑐")
+                            .width(30)
+                            .height(30)
+                            .size(13.5)
+                            .horizontal_alignment(iced::alignment::Horizontal::Center)
+                            .style(Color::new(0.5, 0.5, 0.5, 1.0))
+                            .font(self.nerd_font),
+                    )
+                    .style(theme::Button::Text)
+                    .on_press(Msg::Refresh),
+                );
 
             left = left.push(bar);
         }
@@ -222,41 +255,29 @@ impl Application for App {
                 down = down.push(
                     button(
                         container({
-                            let mut row = Row::new().push(
-                                Text::new(&paper.name)
+                            let mut row = Row::new().height(18.5).push(
+                                Text::new(format!(" {}", paper.name))
                                     .width(Length::Fill)
                                     .horizontal_alignment(iced::alignment::Horizontal::Left)
-                                    .height(13.5)
+                                    .height(18.5)
                                     .vertical_alignment(iced::alignment::Vertical::Center),
                             );
 
-                            row = match paper.processed {
-                                Some(true) => row.push(
-                                    Text::new("󰄬")
+                            if let Some(p) = paper.processed {
+                                row = row.push(
+                                    Text::new("󰧞")
                                         .size(10)
                                         .width(15)
+                                        .height(18.5)
+                                        .vertical_alignment(iced::alignment::Vertical::Center)
                                         .font(self.nerd_font)
-                                        .style(Color::new(
-                                            0.411_764_7,
-                                            0.694_117_67,
-                                            0.325_490_2,
-                                            0.003_921_569,
-                                        )),
-                                ),
-                                Some(false) => row.push(
-                                    Text::new("󰅖")
-                                        .size(10)
-                                        .width(15)
-                                        .font(self.nerd_font)
-                                        .style(Color::new(
-                                            0.772_549_03,
-                                            0.352_941_2,
-                                            0.396_078_44,
-                                            0.003_921_569,
-                                        )),
-                                ),
-                                None => row,
-                            };
+                                        .style(if p {
+                                            self.theme().palette().success
+                                        } else {
+                                            self.theme().palette().danger
+                                        }),
+                                );
+                            }
 
                             row
                         })
@@ -281,24 +302,41 @@ impl Application for App {
             .selected_paper
             .and_then(|value| self.papers.get(&value))
         {
+            let hex_color = HexColor::parse_rgb(&paper.color).unwrap_or_default();
+
             right = right
                 .push(vertical_space(15))
-                .push(container(Text::new(&paper.info)).width(Length::Fill))
+                .push(container(Text::new(&paper.info)).width(Length::Fill).style(
+                    theme::Container::Custom(Box::new(move |_: &_| {
+                        iced::widget::container::Appearance {
+                            text_color: Some(color!(000000)),
+                            background: Some(iced::Background::Color(Color::from_rgb8(
+                                hex_color.r,
+                                hex_color.g,
+                                hex_color.b,
+                            ))),
+                            border_radius: Default::default(),
+                            border_width: 0.,
+                            border_color: Default::default(),
+                        }
+                    })),
+                ))
                 .push(vertical_space(15));
 
             right = right
-                .push(Text::new(format!("Time: {}", paper.time.to_rfc3339())))
+                .push(Text::new(format!("Time: {}", paper.time.to_rfc2822())))
                 .push(Text::new(format!("Name: {}", paper.name)))
                 .push(Text::new(format!("Email: {}", paper.email)))
                 .push(vertical_space(Length::Fill));
 
-            if paper.processed.is_some() {
+            if paper.processed.is_none() {
                 right = right.push(
                     button(
                         Text::new("Accept")
                             .horizontal_alignment(iced::alignment::Horizontal::Center),
                     )
                     .width(Length::Fill)
+                    .style(theme::Button::Positive)
                     .on_press(Msg::Accept(paper.pid)),
                 );
             }
@@ -313,6 +351,15 @@ impl Application for App {
         )
         .into()
     }
+
+    #[inline]
+    fn theme(&self) -> Self::Theme {
+        if self.dark_mode {
+            iced::Theme::Dark
+        } else {
+            iced::Theme::Light
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -323,6 +370,8 @@ enum Msg {
     RefreshDone(Vec<Paper>),
     OpenPaper(i32),
     Accept(i32),
+    Accepted(i32, bool),
+    ToggleDarkMode,
 }
 
 #[derive(Debug, Deserialize, Clone)]

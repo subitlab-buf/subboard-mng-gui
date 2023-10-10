@@ -909,6 +909,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d77f7ec81a6d05a3abb01ab6eb7590f6083d08449fe5a1c8b1e620283546ccb7"
 
 [[package]]
+name = "hex_color"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff917051cbc87800de93ddcf39b59c9f2a0a4d809411a341c0ac422771219808"
+dependencies = [
+ "rand",
+]
+
+[[package]]
 name = "hexf-parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1058,6 +1067,7 @@ dependencies = [
  "futures",
  "iced_core",
  "log",
+ "tokio",
  "wasm-bindgen-futures",
  "wasm-timer",
 ]
@@ -2494,8 +2504,10 @@ name = "subboard-mng-gui"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "hex_color",
  "iced",
  "iced_aw",
+ "iced_futures",
  "reqwest",
  "serde",
  "toml",
@@ -2718,6 +2730,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "num_cpus",
  "pin-project-lite",
  "socket2 0.5.4",
  "windows-sys 0.48.0",
