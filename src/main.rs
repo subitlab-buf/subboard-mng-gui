@@ -306,21 +306,23 @@ impl Application for App {
 
             right = right
                 .push(vertical_space(15))
-                .push(container(Text::new(&paper.info)).width(Length::Fill).style(
-                    theme::Container::Custom(Box::new(move |_: &_| {
-                        iced::widget::container::Appearance {
-                            text_color: Some(color!(000000)),
-                            background: Some(iced::Background::Color(Color::from_rgb8(
-                                hex_color.r,
-                                hex_color.g,
-                                hex_color.b,
-                            ))),
-                            border_radius: Default::default(),
-                            border_width: 0.,
-                            border_color: Default::default(),
-                        }
-                    })),
-                ))
+                .push(
+                    container(Text::new(format!(" {} ", paper.info)).size(16.5))
+                        .style(theme::Container::Custom(Box::new(move |_: &_| {
+                            iced::widget::container::Appearance {
+                                text_color: Some(color!(000000)),
+                                background: Some(iced::Background::Color(Color::from_rgb8(
+                                    hex_color.r,
+                                    hex_color.g,
+                                    hex_color.b,
+                                ))),
+                                border_radius: Default::default(),
+                                border_width: 0.,
+                                border_color: Default::default(),
+                            }
+                        })))
+                        .width(Length::Fill),
+                )
                 .push(vertical_space(15));
 
             right = right
