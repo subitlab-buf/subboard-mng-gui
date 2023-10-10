@@ -7,7 +7,7 @@ use iced::{
     color,
     futures::TryFutureExt,
     theme,
-    widget::{button, container, vertical_space, Column, Row, Scrollable, Text},
+    widget::{button, container, horizontal_space, vertical_space, Column, Row, Scrollable, Text},
     Application, Color, Command, Font, Length,
 };
 use iced_aw::Split;
@@ -76,6 +76,8 @@ struct App {
     selected_paper: Option<i32>,
     nerd_font: Font,
     dark_mode: bool,
+    split_axis: iced_aw::split::Axis,
+    display_bg: bool,
 }
 
 impl Application for App {
@@ -91,7 +93,6 @@ impl Application for App {
         (
             Self {
                 papers: HashMap::new(),
-
                 static_ins: Box::leak(Box::new(StaticIns {
                     host: BuiltHost {
                         paper_need_process: format!(
@@ -103,26 +104,31 @@ impl Application for App {
                             flags.host_url, flags.global_mapping, flags.process_paper_mapping
                         ),
                     },
-
                     client: reqwest::Client::new(),
                 })),
-
-                split_0_pos: Some(200),
+                split_0_pos: Some(250),
                 selected_paper: None,
                 nerd_font: Font::MONOSPACE,
                 dark_mode: false,
+                split_axis: iced_aw::split::Axis::Vertical,
+                display_bg: true,
             },
-            iced::font::load(include_bytes!("../fonts/SymbolsNerdFontMono-Regular.ttf").as_slice())
+            Command::batch([
+                Command::perform(async {}, |_| Msg::Refresh),
+                iced::font::load(
+                    include_bytes!("../fonts/SymbolsNerdFontMono-Regular.ttf").as_slice(),
+                )
                 .map(Msg::FontLoaded),
+            ]),
         )
     }
 
     #[inline]
     fn title(&self) -> String {
         format!(
-            "{}SubBoard GUI",
+            "SubBoard{}",
             if let Some(value) = self.selected_paper.and_then(|v| self.papers.get(&v)) {
-                format!("{} - ", value.info)
+                format!(" - Paper from {}", value.name)
             } else {
                 Default::default()
             }
@@ -159,7 +165,10 @@ impl Application for App {
                     self.papers.insert(paper.pid, paper);
                 }
             }
-            Msg::OpenPaper(paper) => self.selected_paper = Some(paper),
+            Msg::OpenPaper(paper) => {
+                self.selected_paper = Some(paper);
+                self.display_bg = true
+            }
             Msg::Accept(paper) => {
                 let si = self.static_ins;
                 return Command::perform(
@@ -193,6 +202,14 @@ impl Application for App {
             Msg::ToggleDarkMode => {
                 self.dark_mode = !self.dark_mode;
             }
+            Msg::SwitchSplitAxis => {
+                self.split_axis = match self.split_axis {
+                    iced_aw::split::Axis::Horizontal => iced_aw::split::Axis::Vertical,
+                    iced_aw::split::Axis::Vertical => iced_aw::split::Axis::Horizontal,
+                }
+            }
+            Msg::ToggleBg => self.display_bg = !self.display_bg,
+            Msg::CleanAccepted => self.papers.retain(|_, v| v.processed.is_none()),
             _ => (),
         }
 
@@ -217,8 +234,24 @@ impl Application for App {
             bar = bar
                 .push(
                     button(
-                        Text::new("󰃝")
-                            .width(30)
+                        Text::new(match self.split_axis {
+                            iced_aw::split::Axis::Vertical => "",
+                            iced_aw::split::Axis::Horizontal => "",
+                        })
+                        .width(23.5)
+                        .height(30)
+                        .size(13.5)
+                        .horizontal_alignment(iced::alignment::Horizontal::Center)
+                        .style(Color::new(0.5, 0.5, 0.5, 1.0))
+                        .font(self.nerd_font),
+                    )
+                    .style(theme::Button::Text)
+                    .on_press(Msg::SwitchSplitAxis),
+                )
+                .push(
+                    button(
+                        Text::new("")
+                            .width(23.5)
                             .height(30)
                             .size(13.5)
                             .horizontal_alignment(iced::alignment::Horizontal::Center)
@@ -230,8 +263,21 @@ impl Application for App {
                 )
                 .push(
                     button(
-                        Text::new("󰑐")
-                            .width(30)
+                        Text::new("")
+                            .width(23.5)
+                            .height(30)
+                            .size(13.5)
+                            .horizontal_alignment(iced::alignment::Horizontal::Center)
+                            .style(Color::new(0.5, 0.5, 0.5, 1.0))
+                            .font(self.nerd_font),
+                    )
+                    .style(theme::Button::Text)
+                    .on_press(Msg::CleanAccepted),
+                )
+                .push(
+                    button(
+                        Text::new("")
+                            .width(23.5)
                             .height(30)
                             .size(13.5)
                             .horizontal_alignment(iced::alignment::Horizontal::Center)
@@ -256,19 +302,19 @@ impl Application for App {
                     button(
                         container({
                             let mut row = Row::new().height(18.5).push(
-                                Text::new(format!(" {}", paper.name))
+                                Text::new(format!(" {}: {}", paper.name, paper.info))
                                     .width(Length::Fill)
                                     .horizontal_alignment(iced::alignment::Horizontal::Left)
-                                    .height(18.5)
                                     .vertical_alignment(iced::alignment::Vertical::Center),
                             );
 
                             if let Some(p) = paper.processed {
                                 row = row.push(
-                                    Text::new("󰧞")
+                                    Text::new("")
                                         .size(10)
-                                        .width(15)
+                                        .width(18.5)
                                         .height(18.5)
+                                        .horizontal_alignment(iced::alignment::Horizontal::Center)
                                         .vertical_alignment(iced::alignment::Vertical::Center)
                                         .font(self.nerd_font)
                                         .style(if p {
@@ -304,35 +350,57 @@ impl Application for App {
         {
             let hex_color = HexColor::parse_rgb(&paper.color).unwrap_or_default();
 
-            right = right
-                .push(vertical_space(15))
-                .push(
-                    container(Text::new(format!(" {} ", paper.info)).size(16.5))
-                        .style(theme::Container::Custom(Box::new(move |_: &_| {
-                            iced::widget::container::Appearance {
-                                text_color: Some(color!(000000)),
-                                background: Some(iced::Background::Color(Color::from_rgb8(
-                                    hex_color.r,
-                                    hex_color.g,
-                                    hex_color.b,
-                                ))),
-                                border_radius: Default::default(),
-                                border_width: 0.,
-                                border_color: Default::default(),
-                            }
-                        })))
-                        .width(Length::Fill),
+            right = right.push(
+                Scrollable::new(
+                    Column::new()
+                        .push(vertical_space(15))
+                        .push(
+                            Row::new().push(
+                                container(Text::new(format!("  {}  ", paper.info)).size(18.5))
+                                    .style(if self.display_bg {
+                                        theme::Container::Custom(Box::new(move |_: &_| {
+                                            iced::widget::container::Appearance {
+                                                text_color: Some(color!(000000)),
+                                                background: Some(iced::Background::Color(
+                                                    Color::from_rgb8(
+                                                        hex_color.r,
+                                                        hex_color.g,
+                                                        hex_color.b,
+                                                    ),
+                                                )),
+                                                border_radius: Default::default(),
+                                                border_width: 0.,
+                                                border_color: Default::default(),
+                                            }
+                                        }))
+                                    } else {
+                                        theme::Container::Transparent
+                                    })
+                                    .width(Length::Fill),
+                            ),
+                        )
+                        .push(vertical_space(15))
+                        .push(
+                            Row::new()
+                                .push(Text::new("").font(self.nerd_font))
+                                .push(horizontal_space(3.5))
+                                .push(Text::new(&paper.name)),
+                        )
+                        .push(
+                            Row::new()
+                                .push(Text::new("").font(self.nerd_font))
+                                .push(horizontal_space(3.5))
+                                .push(Text::new(&paper.email)),
+                        )
+                        .push(
+                            Text::new(paper.time.to_rfc2822()).style(Color::new(0.5, 0.5, 0.5, 1.)),
+                        ),
                 )
-                .push(vertical_space(15));
-
-            right = right
-                .push(Text::new(format!("Time: {}", paper.time.to_rfc2822())))
-                .push(Text::new(format!("Name: {}", paper.name)))
-                .push(Text::new(format!("Email: {}", paper.email)))
-                .push(vertical_space(Length::Fill));
+                .height(Length::Fill),
+            );
 
             if paper.processed.is_none() {
-                right = right.push(
+                let mut row = Row::new().height(35).push(
                     button(
                         Text::new("Accept")
                             .horizontal_alignment(iced::alignment::Horizontal::Center),
@@ -341,14 +409,34 @@ impl Application for App {
                     .style(theme::Button::Positive)
                     .on_press(Msg::Accept(paper.pid)),
                 );
+
+                row = row.push(
+                    button(
+                        Text::new("")
+                            .size(16.5)
+                            .height(35)
+                            .width(35)
+                            .horizontal_alignment(iced::alignment::Horizontal::Center)
+                            .vertical_alignment(iced::alignment::Vertical::Center)
+                            .style(Color::new(0.5, 0.5, 0.5, 1.))
+                            .font(self.nerd_font),
+                    )
+                    .style(theme::Button::Text)
+                    .on_press(Msg::ToggleBg),
+                );
+
+                right = right.push(row).push(vertical_space(15));
             }
         }
 
         Split::new(
             left,
-            right,
+            Row::new()
+                .push(horizontal_space(15))
+                .push(right)
+                .push(horizontal_space(15)),
             self.split_0_pos,
-            iced_aw::split::Axis::Vertical,
+            self.split_axis,
             Msg::Split0Resized,
         )
         .into()
@@ -374,6 +462,9 @@ enum Msg {
     Accept(i32),
     Accepted(i32, bool),
     ToggleDarkMode,
+    SwitchSplitAxis,
+    ToggleBg,
+    CleanAccepted,
 }
 
 #[derive(Debug, Deserialize, Clone)]
