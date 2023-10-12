@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, io::Read};
+use std::{collections::HashMap, fs::File, io::Read, sync::Arc, time::Duration};
 
 use chrono::DateTime;
 
@@ -6,6 +6,7 @@ use hex_color::HexColor;
 use iced::{
     color,
     futures::TryFutureExt,
+    keyboard::KeyCode,
     theme,
     widget::{button, container, horizontal_space, vertical_space, Column, Row, Scrollable, Text},
     Application, Color, Command, Font, Length,
@@ -15,7 +16,7 @@ use serde::Deserialize;
 
 fn main() -> iced::Result {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
+        .with_max_level(tracing::Level::INFO)
         .init();
 
     let config: Config;
@@ -74,10 +75,13 @@ struct App {
 
     split_0_pos: Option<u16>,
     selected_paper: Option<i32>,
+    related_papers: (Option<i32>, Option<i32>),
     nerd_font: Font,
     dark_mode: bool,
     split_axis: iced_aw::split::Axis,
     display_bg: bool,
+
+    refresh_count: Arc<()>,
 }
 
 impl Application for App {
@@ -108,13 +112,15 @@ impl Application for App {
                 })),
                 split_0_pos: Some(250),
                 selected_paper: None,
+                related_papers: (None, None),
                 nerd_font: Font::MONOSPACE,
                 dark_mode: false,
                 split_axis: iced_aw::split::Axis::Vertical,
                 display_bg: true,
+                refresh_count: Arc::new(()),
             },
             Command::batch([
-                Command::perform(async {}, |_| Msg::Refresh),
+                Command::perform(async {}, |_| Msg::RefreshLoop(Duration::ZERO)),
                 iced::font::load(
                     include_bytes!("../fonts/SymbolsNerdFontMono-Regular.ttf").as_slice(),
                 )
@@ -139,9 +145,12 @@ impl Application for App {
         match message {
             Msg::Split0Resized(s) => self.split_0_pos = Some(s),
             Msg::Refresh => {
+                let arc = self.refresh_count.clone();
                 return Command::perform(
                     async {
+                        let _: Arc<_> = arc;
                         let span = tracing::span!(tracing::Level::INFO, "refresh papers");
+                        tracing::event!(tracing::Level::INFO, "refreshing papers");
                         let _ = span.enter();
 
                         Msg::RefreshDone(
@@ -158,15 +167,39 @@ impl Application for App {
                         )
                     },
                     std::convert::identity,
-                )
+                );
+            }
+            Msg::RefreshLoop(duration) => {
+                let weak = Arc::downgrade(&self.refresh_count);
+                return Command::perform(
+                    async move {
+                        tokio::time::sleep(duration).await;
+                        weak.strong_count() == 1
+                    },
+                    |p| {
+                        if p {
+                            Msg::Multi(vec![
+                                Msg::Refresh,
+                                Msg::RefreshLoop(Duration::from_secs(45)),
+                            ])
+                        } else {
+                            Msg::RefreshLoop(Duration::from_secs(30))
+                        }
+                    },
+                );
             }
             Msg::RefreshDone(papers) => {
                 for paper in papers {
                     self.papers.insert(paper.pid, paper);
                 }
             }
-            Msg::OpenPaper(paper) => {
-                self.selected_paper = Some(paper);
+            Msg::OpenPaper {
+                before,
+                target,
+                after,
+            } => {
+                self.selected_paper = Some(target);
+                self.related_papers = (before, after);
                 self.display_bg = true
             }
             Msg::Accept(paper) => {
@@ -210,6 +243,56 @@ impl Application for App {
             }
             Msg::ToggleBg => self.display_bg = !self.display_bg,
             Msg::CleanAccepted => self.papers.retain(|_, v| v.processed.is_none()),
+            Msg::Multi(vec) => {
+                let mut commands = Vec::with_capacity(vec.len());
+                for msg in vec {
+                    commands.push(self.update(msg));
+                }
+                return Command::batch(commands);
+            }
+            Msg::Event(iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                key_code,
+                ..
+            })) => match key_code {
+                KeyCode::Up | KeyCode::K => {
+                    if let Some((v1, v2)) = self.selected_paper.zip(self.related_papers.0) {
+                        let mut papers: Vec<&Paper> = self.papers.values().collect();
+                        papers.sort_unstable_by_key(|paper| &paper.time);
+                        papers.reverse();
+                        return self.update(Msg::OpenPaper {
+                            before: papers
+                                .iter()
+                                .position(|e| e.pid == v2)
+                                .and_then(|pos| if pos == 0 { None } else { papers.get(pos - 1) })
+                                .map(|e| e.pid),
+                            target: v2,
+                            after: Some(v1),
+                        });
+                    }
+                }
+                KeyCode::Down | KeyCode::J => {
+                    if let Some((v1, v2)) = self.selected_paper.zip(self.related_papers.1) {
+                        let mut papers: Vec<&Paper> = self.papers.values().collect();
+                        papers.sort_unstable_by_key(|paper| &paper.time);
+                        papers.reverse();
+                        return self.update(Msg::OpenPaper {
+                            after: papers
+                                .iter()
+                                .position(|e| e.pid == v2)
+                                .and_then(|pos| papers.get(pos + 1))
+                                .map(|e| e.pid),
+                            target: v2,
+                            before: Some(v1),
+                        });
+                    }
+                }
+                KeyCode::Enter | KeyCode::NumpadEnter => {
+                    if let Some(value) = self.selected_paper {
+                        return self.update(Msg::Accept(value));
+                    }
+                }
+                _ => (),
+            },
             _ => (),
         }
 
@@ -273,8 +356,10 @@ impl Application for App {
                     )
                     .style(theme::Button::Text)
                     .on_press(Msg::CleanAccepted),
-                )
-                .push(
+                );
+
+            if Arc::strong_count(&self.refresh_count) == 1 {
+                bar = bar.push(
                     button(
                         Text::new("")
                             .width(23.5)
@@ -287,6 +372,7 @@ impl Application for App {
                     .style(theme::Button::Text)
                     .on_press(Msg::Refresh),
                 );
+            }
 
             left = left.push(bar);
         }
@@ -296,19 +382,25 @@ impl Application for App {
 
             let mut papers: Vec<&Paper> = self.papers.values().collect();
             papers.sort_unstable_by_key(|paper| &paper.time);
+            papers.reverse();
 
-            for paper in papers {
+            let mut before = None;
+            let mut after;
+
+            for paper in papers.iter().copied().enumerate() {
+                after = papers.get(paper.0 + 1).copied().map(|e| e.pid);
+
                 down = down.push(
                     button(
                         container({
                             let mut row = Row::new().height(18.5).push(
-                                Text::new(format!(" {}: {}", paper.name, paper.info))
+                                Text::new(format!(" {}: {}", paper.1.name, paper.1.info))
                                     .width(Length::Fill)
                                     .horizontal_alignment(iced::alignment::Horizontal::Left)
                                     .vertical_alignment(iced::alignment::Vertical::Center),
                             );
 
-                            if let Some(p) = paper.processed {
+                            if let Some(p) = paper.1.processed {
                                 row = row.push(
                                     Text::new("")
                                         .size(10)
@@ -328,7 +420,7 @@ impl Application for App {
                             row
                         })
                         .style(
-                            if self.selected_paper.map_or(false, |e| paper.pid == e) {
+                            if self.selected_paper.map_or(false, |e| paper.1.pid == e) {
                                 theme::Container::Box
                             } else {
                                 theme::Container::Transparent
@@ -336,8 +428,14 @@ impl Application for App {
                         ),
                     )
                     .style(theme::Button::Text)
-                    .on_press(Msg::OpenPaper(paper.pid)),
-                )
+                    .on_press(Msg::OpenPaper {
+                        before,
+                        target: paper.1.pid,
+                        after,
+                    }),
+                );
+
+                before = Some(paper.1.pid);
             }
 
             left = left.push(Scrollable::new(down).height(Length::Fill));
@@ -351,8 +449,8 @@ impl Application for App {
             let hex_color = HexColor::parse_rgb(&paper.color).unwrap_or_default();
 
             right = right.push(
-                Scrollable::new(
-                    Column::new()
+                Scrollable::new({
+                    let mut col = Column::new()
                         .push(vertical_space(15))
                         .push(
                             Row::new().push(
@@ -385,17 +483,21 @@ impl Application for App {
                                 .push(Text::new("").font(self.nerd_font))
                                 .push(horizontal_space(3.5))
                                 .push(Text::new(&paper.name)),
-                        )
-                        .push(
+                        );
+
+                    if let Some(email) = paper.email.as_deref() {
+                        col = col.push(
                             Row::new()
                                 .push(Text::new("").font(self.nerd_font))
                                 .push(horizontal_space(3.5))
-                                .push(Text::new(&paper.email)),
-                        )
-                        .push(
-                            Text::new(paper.time.to_rfc2822()).style(Color::new(0.5, 0.5, 0.5, 1.)),
-                        ),
-                )
+                                .push(Text::new(email)),
+                        );
+                    }
+
+                    col.push(
+                        Text::new(paper.time.to_rfc2822()).style(Color::new(0.5, 0.5, 0.5, 1.)),
+                    )
+                })
                 .height(Length::Fill),
             );
 
@@ -450,21 +552,32 @@ impl Application for App {
             iced::Theme::Light
         }
     }
+
+    fn subscription(&self) -> iced_futures::Subscription<Self::Message> {
+        iced::subscription::events().map(Msg::Event)
+    }
 }
 
 #[derive(Debug, Clone)]
 enum Msg {
     FontLoaded(Result<(), iced::font::Error>),
     Split0Resized(u16),
+    RefreshLoop(Duration),
     Refresh,
     RefreshDone(Vec<Paper>),
-    OpenPaper(i32),
+    OpenPaper {
+        before: Option<i32>,
+        target: i32,
+        after: Option<i32>,
+    },
     Accept(i32),
     Accepted(i32, bool),
     ToggleDarkMode,
     SwitchSplitAxis,
     ToggleBg,
     CleanAccepted,
+    Multi(Vec<Self>),
+    Event(iced::Event),
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -473,7 +586,7 @@ struct Paper {
     info: String,
     time: DateTime<chrono::Local>,
     name: String,
-    email: String,
+    email: Option<String>,
     color: String,
 
     #[serde(default)]

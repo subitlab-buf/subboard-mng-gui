@@ -2510,6 +2510,7 @@ dependencies = [
  "iced_futures",
  "reqwest",
  "serde",
+ "tokio",
  "toml",
  "tracing",
  "tracing-subscriber",
