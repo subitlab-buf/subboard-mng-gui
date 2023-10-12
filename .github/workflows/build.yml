@@ -17,7 +17,7 @@ jobs:
     - name: capture build artifacts
       uses: actions/upload-artifact@v2
       with:
-        name: GNU/Linux binaries
+        name: GNU-Linux binaries
         path: target/release/subboard-mng-gui
   build-macos:
     runs-on: macOS-latest
