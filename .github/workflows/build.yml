@@ -1,0 +1,43 @@
+name: Build
+
+on:
+  push:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build on Ubuntu
+      run: cargo build --release
+    - name: capture build artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: GNU/Linux binaries
+        path: target/release/subboard-mng-gui
+  build-macos:
+    runs-on: macOS-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build on macOS
+      run: cargo build --release
+    - name: capture build artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: macOS binaries
+        path: target/release/subboard-mng-gui
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build on Windows
+      run: cargo build --release
+    - name: capture build artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: Windows binaries
+        path: target/release/subboard-mng-gui.exe
