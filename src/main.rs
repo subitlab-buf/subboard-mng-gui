@@ -70,12 +70,12 @@ struct StaticIns {
 #[derive(Debug)]
 struct App {
     /// Loaded papers.
-    papers: HashMap<i32, Paper>,
+    papers: HashMap<u64, Paper>,
     static_ins: &'static StaticIns,
 
     split_0_pos: Option<u16>,
-    selected_paper: Option<i32>,
-    related_papers: (Option<i32>, Option<i32>),
+    selected_paper: Option<u64>,
+    related_papers: (Option<u64>, Option<u64>),
     nerd_font: Font,
     dark_mode: bool,
     split_axis: iced_aw::split::Axis,
@@ -576,12 +576,12 @@ enum Msg {
     Refresh,
     RefreshDone(Vec<Paper>),
     OpenPaper {
-        before: Option<i32>,
-        target: i32,
-        after: Option<i32>,
+        before: Option<u64>,
+        target: u64,
+        after: Option<u64>,
     },
-    Accept(i32),
-    Accepted(i32, bool),
+    Accept(u64),
+    Accepted(u64, bool),
     ToggleDarkMode,
     SwitchSplitAxis,
     ToggleBg,
@@ -592,9 +592,9 @@ enum Msg {
 
 #[derive(Debug, Deserialize, Clone)]
 struct Paper {
-    pid: i32,
+    pid: u64,
     info: String,
-    time: DateTime<chrono::Local>,
+    time: DateTime<chrono::Utc>,
     name: String,
     email: Option<String>,
     #[serde(default)]
