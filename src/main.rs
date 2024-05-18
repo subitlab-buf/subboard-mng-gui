@@ -148,10 +148,10 @@ impl Application for App {
                 let arc = self.refresh_count.clone();
                 return Command::perform(
                     async {
-                        let _: Arc<_> = arc;
+                        let _count: Arc<_> = arc;
                         let span = tracing::span!(tracing::Level::INFO, "refresh papers");
                         tracing::event!(tracing::Level::INFO, "refreshing papers");
-                        let _ = span.enter();
+                        let _span = span.enter();
 
                         Msg::RefreshDone(
                             self.static_ins
@@ -207,7 +207,7 @@ impl Application for App {
                 return Command::perform(
                     async move {
                         let span = tracing::span!(tracing::Level::INFO, "accept paper {paper}");
-                        let _ = span.enter();
+                        let _span = span.enter();
 
                         if let Err(err) = si
                             .client
