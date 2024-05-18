@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-iced = "0.10"
+iced = { version = "0.10", default-features = false }
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
@@ -17,3 +17,6 @@ iced_aw = { version = "0.7", features = ["split"] }
 iced_futures = { version = "0.7", features = ["tokio"] }
 hex_color = "3.0"
 tokio = { version = "1.37", features = ["time"] }
+
+[profile.release]
+lto = "fat"
