@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, io::Read, sync::Arc, time::Duration};
+use std::{collections::HashMap, fs::File, io::Read, str::FromStr, sync::Arc, time::Duration};
 
 use chrono::DateTime;
 
@@ -446,7 +446,17 @@ impl Application for App {
             .selected_paper
             .and_then(|value| self.papers.get(&value))
         {
-            let hex_color = HexColor::parse_rgb(&paper.color).unwrap_or_default();
+            const YELLOW: HexColor = HexColor {
+                r: 255,
+                g: 255,
+                b: 204,
+                a: u8::MAX,
+            };
+            let hex_color = paper
+                .color
+                .as_ref()
+                .and_then(|str| HexColor::from_str(str).ok())
+                .unwrap_or(YELLOW);
 
             right = right.push(
                 Scrollable::new({
@@ -587,7 +597,8 @@ struct Paper {
     time: DateTime<chrono::Local>,
     name: String,
     email: Option<String>,
-    color: String,
+    #[serde(default)]
+    color: Option<String>,
 
     #[serde(default)]
     processed: Option<bool>,
